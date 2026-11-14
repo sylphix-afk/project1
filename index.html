@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Адаптивный муравьиный алгоритм — симулятор</title>
+<style>
+:root{--bg:#f6f5f1;--surf:#fff;--tx:#1d1d1b;--mut:#6b6a64;--bd:#dcdad2;--acc:#d9531e;--ph:#2a7f62;--bad:#c0392b;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#161615;--surf:#212120;--tx:#ecebe6;--mut:#9a988f;--bd:#363633;--acc:#ff7a45;--ph:#4cc9a0;--bad:#ff6b5b;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#161615;--surf:#212120;--tx:#ecebe6;--mut:#9a988f;--bd:#363633;--acc:#ff7a45;--ph:#4cc9a0;--bad:#ff6b5b;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:1000px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:0 0 4px}
+p.sub{margin:0 0 12px;color:var(--mut);font-size:13px}
+.card{background:var(--surf);border:1px solid var(--bd);border-radius:12px;padding:10px;margin-bottom:12px}
+canvas{display:block;width:100%;border-radius:8px;touch-action:manipulation}
+#map{aspect-ratio:5/3;height:auto;cursor:crosshair}
+#chart{height:120px}
+.stats{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--mut);margin-top:8px}
+.stats b{color:var(--tx);font-variant-numeric:tabular-nums}
+.row{display:flex;flex-wrap:wrap;gap:8px 14px;margin-bottom:8px;align-items:center}
+button{font:inherit;font-size:13px;padding:7px 11px;border-radius:8px;border:1px solid var(--bd);background:var(--surf);color:var(--tx);cursor:pointer}
+button.p{background:var(--acc);border-color:var(--acc);color:#fff}
+button:active{opacity:.7}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px 16px}
+label{font-size:13px;display:block}
+label span{float:right;color:var(--mut);font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--acc)}
+.chk{display:flex;gap:6px;align-items:center;font-size:13px}
+.grp{font-size:12px;color:var(--mut)}
+.leg{font-size:12px;color:var(--mut);margin-top:6px}
+.leg i{display:inline-block;width:14px;height:3px;vertical-align:middle;margin:0 4px 0 8px}
+.warn{margin-top:8px;padding:6px 10px;border-radius:8px;font-size:13px;color:var(--bad);border:1px solid var(--bad)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:5px 6px;border-bottom:1px solid var(--bd);vertical-align:top}
+th{color:var(--mut);font-weight:500}
+tr.best td{font-weight:600}
+.bar{height:6px;background:var(--acc);border-radius:3px;margin-bottom:3px}
+</style>
+</head>
+<body>
+<main>
+<h1>Адаптивный муравьиный алгоритм</h1>
+<p class="sub">Муравьи ищут путь в реальном времени: сначала бродят наугад, потом феромон собирается на лучшей дороге. Меняйте среду (города, препятствия) и смотрите, как колония перестраивается.</p>
+
+<div class="card">
+<canvas id="map"></canvas>
+<div class="leg"><i style="background:var(--bd)"></i>дороги<i style="background:var(--ph)"></i>феромон<i style="background:var(--acc);height:4px"></i>лучший найденный путь<i style="background:var(--bad)"></i>препятствие</div>
+<div class="warn" id="warn" hidden>⚠ Пути нет: препятствия или малый радиус связи разрывают дороги. Увеличьте радиус или уберите препятствия.</div>
+<div class="stats">
+<span>Время: <b id="sT">0</b> с</span>
+<span>Лучший: <b id="sBest">—</b></span>
+<span>Проходов: <b id="sDone">0</b></span>
+<span>Города: <b id="sN">0</b></span>
+<span>Препятствия: <b id="sO">0</b></span>
+<span>ρ: <b id="sRho">0</b></span>
+<span>α: <b id="sAl">0</b></span>
+<span>β: <b id="sBe">0</b></span>
+<span>Φ: <b id="sPhi">0</b></span>
+</div>
+</div>
+
+<div class="card">
+<canvas id="chart"></canvas>
+<div class="leg">Длина лучшего найденного пути во времени. Красные линии: изменения среды. Смотрите, как быстро кривая возвращается вниз.</div>
+</div>
+
+<div class="card">
+<div class="row">
+<label class="chk"><input type="radio" name="mode" value="goal" checked> Кратчайший путь A → B (точки можно пропускать)</label>
+<label class="chk"><input type="radio" name="mode" value="tour"> Обязательно пройти все точки (замкнутый маршрут из A)</label>
+</div>
+<div class="row">
+<span class="grp">Клик по карте:</span>
+<label class="chk"><input type="radio" name="tool" value="city" checked> добавить город</label>
+<label class="chk"><input type="radio" name="tool" value="move"> перетащить город</label>
+<label class="chk"><input type="radio" name="tool" value="del"> удалить город</label>
+<label class="chk"><input type="radio" name="tool" value="setB"> поставить B (на город или на пустое место)</label>
+<label class="chk"><input type="radio" name="tool" value="obst"> препятствие (клик по нему удаляет)</label>
+</div>
+<div class="row">
+<button class="p" id="bRun">Пауза</button>
+<button id="bReset">Новая карта</button>
+<button id="bAdd">+ Город</button>
+<button id="bDel">− Город</button>
+<button id="bObs">+ Препятствие</button>
+<button id="bClr">Убрать препятствия</button>
+<button id="bMove">Сдвинуть 5 городов</button>
+<button id="bStr">Растянуть карту</button>
+<button id="bShr">Сжать карту</button>
+</div>
+<div class="row">
+<label class="chk"><input type="checkbox" id="cAdapt" checked> Адаптация включена</label>
+<label class="chk"><input type="checkbox" id="cAuto"> Авто-изменения каждые 8 с</label>
+<label class="chk"><input type="checkbox" id="cAnts" checked> Показывать муравьёв</label>
+<label class="chk"><input type="checkbox" id="cPher" checked> Показывать феромон</label>
+</div>
+<div class="grid">
+<label>α (феромон)<span id="vA"></span><input type="range" id="rA" min="0.5" max="3" step="0.1" value="1"></label>
+<label>β (расстояние)<span id="vB"></span><input type="range" id="rB" min="1" max="8" step="0.1" value="3"></label>
+<label>ρ (испарение, 1/с)<span id="vR"></span><input type="range" id="rR" min="0.05" max="1.5" step="0.05" value="0.3"></label>
+<label>Муравьёв<span id="vM"></span><input type="range" id="rM" min="5" max="60" step="1" value="25"></label>
+<label>Сила сброса λ<span id="vL"></span><input type="range" id="rL" min="0" max="1" step="0.05" value="0.5"></label>
+<label>Скорость муравьёв<span id="vS"></span><input type="range" id="rS" min="200" max="3000" step="100" value="900"></label>
+<label>Радиус связи (дороги)<span id="vC"></span><input type="range" id="rC" min="120" max="600" step="10" value="260"></label>
+<label>Размер препятствия<span id="vO"></span><input type="range" id="rO" min="20" max="90" step="5" value="45"></label>
+</div>
+<p class="leg">При изменении среды в адаптивном режиме Φ = 1, затем плавно спадает. Пока Φ велик: ρ растёт, α падает, β растёт, а феромон частично сбрасывается к максимуму: τ ← (1−λ)τ + λ·τ_max. Чтобы увидеть путь без «шума», отключите муравьёв и феромон.</p>
+</div>
+<div class="card">
+<div class="row"><button class="p" id="bBench">Запустить сравнение стратегий</button><span class="grp" id="bSt">Занимает несколько секунд, карта на это время замирает</span></div>
+<div id="bOut"></div>
+<p class="leg">Эксперимент идёт без анимации, в ускоренном времени, в текущем режиме (A → B или все точки) и с текущими ползунками. Каждая стратегия проходит одни и те же 5 случайных карт и одни и те же 4 изменения (сдвиг городов, новое препятствие, удаление города, ещё один сдвиг) по 12 с. Восстановился: длина лучшего пути стала не больше 1,05 от лучшей, найденной любой из стратегий в этом периоде. Если не восстановился, засчитывается все 12 с.</p>
+</div>
+</main>
+<script>
+(function(){
+var $=function(id){return document.getElementById(id)};
+var map=$('map'),ch=$('chart'),cx=map.getContext('2d'),cc=ch.getContext('2d');
+var WW=1000,WH=600,TM=6,TMIN=.05;
+var cities=[],obs=[],n=0,D=[],E=[],adj=[],G=[],H=[],tau=[];
+var best=null,bestLen=Infinity,mode='goal',tool='city',hov=null,drag=-1,ants=[],T=0,done=0,phi=0,hist=[],samp=0,acc=0,events=[],running=true,reach=true,lastAuto=0,last=0,P={},EF={a:1,b:3,r:.3,sp:900};
+function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim()}
+function readP(){
+ var g=function(i){return +$(i).value};
+ P.a=g('rA');P.b=g('rB');P.r=g('rR');P.m=g('rM');P.sp=g('rS');P.l=g('rL');P.R=g('rC');P.os=g('rO');P.ad=$('cAdapt').checked;
+ [['vA','a'],['vB','b'],['vR','r'],['vM','m'],['vL','l'],['vS','sp'],['vC','R'],['vO','os']].forEach(function(p){$(p[0]).textContent=P[p[1]]});
+ while(ants.length<P.m)ants.push(newAnt());
+ if(ants.length>P.m)ants.length=P.m;
+}
+function inObs(x,y,m){return obs.some(function(o){return Math.hypot(x-o.x,y-o.y)<o.r+(m||0)})}
+function rp(x0,x1){var x,y,k=0;do{x=x0+Math.random()*(x1-x0);y=40+Math.random()*(WH-80);k++}while(inObs(x,y,12)&&k<60);return{x:x,y:y}}
+function segD(ax,ay,bx,by,px,py){var dx=bx-ax,dy=by-ay,l=dx*dx+dy*dy,t=l?((px-ax)*dx+(py-ay)*dy)/l:0;t=t<0?0:t>1?1:t;return Math.hypot(ax+t*dx-px,ay+t*dy-py)}
+function blocked(a,b){for(var k=0;k<obs.length;k++){var o=obs[k];if(segD(cities[a].x,cities[a].y,cities[b].x,cities[b].y,o.x,o.y)<o.r+3)return true}return false}
+function build(){
+ var i,j,k;D=[];E=[];adj=[];G=[];H=[];
+ for(i=0;i<n;i++){D.push([]);E.push(new Uint8Array(n));G.push([]);H.push([]);
+  for(j=0;j<n;j++)D[i].push(i==j?1e-9:Math.hypot(cities[i].x-cities[j].x,cities[i].y-cities[j].y))}
+ for(i=0;i<n;i++)for(j=i+1;j<n;j++)if(D[i][j]<P.R&&!blocked(i,j))E[i][j]=E[j][i]=1;
+ for(i=0;i<n;i++){adj.push([]);for(j=0;j<n;j++){if(E[i][j])adj[i].push(j);G[i][j]=i==j?0:(E[i][j]?D[i][j]:Infinity);H[i][j]=E[i][j]?j:-1}}
+ for(k=0;k<n;k++)for(i=0;i<n;i++)for(j=0;j<n;j++)if(G[i][k]+G[k][j]<G[i][j]){G[i][j]=G[i][k]+G[k][j];H[i][j]=H[i][k]}
+ reach=true;
+ if(mode=='goal')reach=isFinite(G[0][1]);else for(j=0;j<n;j++)if(!isFinite(G[0][j]))reach=false;
+}
+function revalidate(){
+ if(!best)return;
+ var ok=true,L=0,i,s={};
+ for(i=0;i<best.length-1;i++){var a=best[i],b=best[i+1];if(a>=n||b>=n||!E[a][b]){ok=false;break}L+=D[a][b]}
+ if(ok&&mode=='tour'){best.forEach(function(v){s[v]=1});if(Object.keys(s).length<n)ok=false}
+ if(ok&&mode=='goal'&&best[best.length-1]!==1)ok=false;
+ if(ok)bestLen=L;else{best=null;bestLen=Infinity}
+}
+function newAnt(){var a={};rst(a,Math.random()*1.5);return a}
+function rst(a,w){a.cur=0;a.path=[0];a.len=0;a.vis=new Uint8Array(n);a.vis[0]=1;a.cnt=1;a.s=0;a.nx=-1;a.wait=w;a.dead=a.done=0}
+function initTau(){tau=[];for(var i=0;i<n;i++)tau.push(new Array(n).fill(1))}
+function env(ev){
+ build();revalidate();ants.forEach(function(a){rst(a,Math.random()*.8)});
+ if(ev){events.push(samp);if(P.rs){for(var i0=0;i0<n;i0++)for(var j0=0;j0<n;j0++)tau[i0][j0]=1}if(P.ad){phi=1;for(var i=0;i<n;i++)for(var j=0;j<n;j++)tau[i][j]=(1-P.l)*tau[i][j]+P.l*TM}}
+ $('warn').hidden=reach;
+}
+function removeCity(k){cities.splice(k,1);tau.splice(k,1);tau.forEach(function(r){r.splice(k,1)});n--}
+function tryObs(o){
+ var i,cnt=0;
+ for(i=0;i<Math.min(2,n);i++)if(Math.hypot(cities[i].x-o.x,cities[i].y-o.y)<o.r+16)return false;
+ for(i=2;i<n;i++)if(Math.hypot(cities[i].x-o.x,cities[i].y-o.y)<o.r+6)cnt++;
+ if(n&&n-cnt<5)return false;
+ if(cnt){for(i=n-1;i>=2;i--)if(Math.hypot(cities[i].x-o.x,cities[i].y-o.y)<o.r+6)removeCity(i);best=null;bestLen=Infinity}
+ obs.push(o);return true;
+}
+function addObsRand(){
+ for(var k=0;k<30;k++)if(tryObs({x:150+Math.random()*700,y:60+Math.random()*480,r:P.os*(.7+Math.random()*.6)}))return true;
+ return false;
+}
+function resetMap(){
+ obs=[];cities=[];n=0;addObsRand();addObsRand();
+ cities.push(rp(40,110));cities.push(rp(890,960));
+ for(var i=0;i<22;i++)cities.push(rp(40,WW-40));
+ n=cities.length;initTau();best=null;bestLen=Infinity;T=0;done=0;phi=0;hist=[];samp=0;events=[];
+ env(false);
+}
+function setMode(m){mode=m;initTau();best=null;bestLen=Infinity;T=0;done=0;phi=0;hist=[];samp=0;events=[];env(false)}
+function addCity(x,y){
+ if(n>=60||inObs(x,y,8))return;
+ cities.push({x:x,y:y});for(var i=0;i<n;i++)tau[i].push(1);n++;tau.push(new Array(n).fill(1));env(true);
+}
+function delCity(){if(n<=6)return;removeCity(2+Math.floor(Math.random()*(n-2)));best=null;bestLen=Infinity;env(true)}
+function moveCities(){for(var c=0;c<5;c++)cities[2+Math.floor(Math.random()*(n-2))]=rp(40,WW-40);env(true)}
+function nearCity(x,y){var k=-1,bd=16;for(var i=0;i<n;i++){var d=Math.hypot(cities[i].x-x,cities[i].y-y);if(d<bd){bd=d;k=i}}return k}
+function setB(k){
+ if(k<2)return;
+ var t=cities[1];cities[1]=cities[k];cities[k]=t;
+ var r=tau[1];tau[1]=tau[k];tau[k]=r;
+ tau.forEach(function(row){var v=row[1];row[1]=row[k];row[k]=v});
+ best=null;bestLen=Infinity;env(true);
+}
+function stretch(f){
+ var cl=function(v,m){return Math.min(m-20,Math.max(20,v))},i;
+ cities.forEach(function(c){c.x=cl(WW/2+(c.x-WW/2)*f,WW);c.y=cl(WH/2+(c.y-WH/2)*f,WH)});
+ obs.forEach(function(o){o.x=WW/2+(o.x-WW/2)*f;o.y=WH/2+(o.y-WH/2)*f});
+ for(i=n-1;i>=2;i--)if(n>5&&inObs(cities[i].x,cities[i].y,4))removeCity(i);
+ best=null;bestLen=Infinity;env(true);
+}
+function roul(c,w,s){var r=Math.random()*s,a=0;for(var i=0;i<c.length;i++){a+=w[i];if(a>=r)return c[i]}return c[c.length-1]}
+function pick(a){
+ var c=a.cur,i,j,x,cand=[],w=[],sum=0,l=adj[c];
+ if(mode=='goal'&&c===1){a.done=1;return}
+ if(mode=='tour'&&a.cnt===n&&c===0){a.done=1;return}
+ for(i=0;i<l.length;i++){j=l[i];if(a.vis[j])continue;
+  x=Math.pow(tau[c][j],EF.a)*Math.pow(1/(mode=='goal'?D[c][j]+D[j][1]:D[c][j]),EF.b);
+  cand.push(j);w.push(x);sum+=x}
+ if(cand.length){a.nx=roul(cand,w,sum);return}
+ if(mode=='goal'){a.dead=1;return}
+ var bd=Infinity,bj=-1;
+ if(a.cnt===n)bj=0;else for(j=0;j<n;j++)if(!a.vis[j]&&G[c][j]<bd){bd=G[c][j];bj=j}
+ if(bj<0||!isFinite(G[c][bj])){a.dead=1;return}
+ a.nx=H[c][bj];
+}
+function fin(a){
+ var L=a.len,p=a.path,i;done++;
+ if(!best||L<bestLen-1e-6){bestLen=L;best=p.slice()}
+ var q=Math.pow(bestLen/L,3);
+ for(i=0;i<p.length-1;i++){var x=p[i],y=p[i+1];tau[x][y]=tau[y][x]=Math.min(TM,tau[x][y]+q)}
+ rst(a,Math.random()*.3);
+}
+function upd(a,dt){
+ if(a.nx<0){a.wait-=dt;if(a.wait>0)return;pick(a);if(a.dead)return rst(a,.3);if(a.done)return fin(a)}
+ if(a.nx<0)return;
+ a.s+=EF.sp*dt;
+ var L=D[a.cur][a.nx];
+ while(a.s>=L){
+  a.s-=L;a.len+=L;a.cur=a.nx;a.path.push(a.cur);
+  if(!a.vis[a.cur]){a.vis[a.cur]=1;a.cnt++}
+  a.nx=-1;pick(a);
+  if(a.dead||a.path.length>6*n)return rst(a,.3);
+  if(a.done)return fin(a);
+  L=D[a.cur][a.nx];
+ }
+}
+function step(dt){
+ phi*=Math.exp(-dt/4);if(phi<.01)phi=0;
+ EF.r=P.ad?Math.min(2,P.r+1.2*phi):P.r;EF.a=P.ad?P.a*(1-.6*phi):P.a;EF.b=P.ad?P.b*(1+.5*phi):P.b;EF.sp=P.sp;
+ var f=Math.exp(-EF.r*dt),i,j;
+ for(i=0;i<n;i++)for(j=0;j<n;j++)tau[i][j]=Math.max(TMIN,tau[i][j]*f);
+ for(i=0;i<ants.length;i++)upd(ants[i],dt);
+ T+=dt;acc+=dt;
+ if(acc>=.25){acc=0;samp++;hist.push(isFinite(bestLen)?bestLen:null);if(hist.length>480)hist.shift()}
+}
+function fit(c){var d=window.devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;if(c.width!=w*d||c.height!=h*d){c.width=w*d;c.height=h*d}return{w:w,h:h,d:d}}
+function dot(x,y,r,col,txt){cx.globalAlpha=1;cx.fillStyle=col;cx.beginPath();cx.arc(x,y,r,0,7);cx.fill();
+ if(txt){cx.fillStyle='#fff';cx.font='bold 11px system-ui,sans-serif';cx.textAlign='center';cx.textBaseline='middle';cx.fillText(txt,x,y+.5)}}
+function draw(){
+ var f=fit(map),W=f.w,H=f.h,s=W/WW,i,j;
+ cx.setTransform(f.d,0,0,f.d,0,0);cx.clearRect(0,0,W,H);
+ var ph=css('--ph'),ac=css('--acc'),tx=css('--tx'),bd=css('--bd'),bad=css('--bad'),sf=css('--surf');
+ obs.forEach(function(o){cx.beginPath();cx.arc(o.x*s,o.y*s,o.r*s,0,7);cx.globalAlpha=.25;cx.fillStyle=bad;cx.fill();cx.globalAlpha=1;cx.strokeStyle=bad;cx.lineWidth=2;cx.stroke()});
+ cx.lineWidth=1;cx.strokeStyle=bd;cx.globalAlpha=1;cx.beginPath();
+ for(i=0;i<n;i++)for(j=i+1;j<n;j++)if(E[i][j]){cx.moveTo(cities[i].x*s,cities[i].y*s);cx.lineTo(cities[j].x*s,cities[j].y*s)}
+ cx.stroke();
+ if($('cPher').checked){
+  cx.strokeStyle=ph;cx.lineCap='round';
+  for(i=0;i<n;i++)for(j=i+1;j<n;j++)if(E[i][j]){
+   var t=(tau[i][j]-TMIN)/(TM-TMIN);if(t<.03)continue;
+   cx.globalAlpha=.1+.5*t;cx.lineWidth=.8+3*t;cx.beginPath();cx.moveTo(cities[i].x*s,cities[i].y*s);cx.lineTo(cities[j].x*s,cities[j].y*s);cx.stroke()}
+ }
+ cx.globalAlpha=1;cx.lineJoin='round';
+ if(best){
+  [[sf,8,.85],[ac,3.5,1]].forEach(function(st){cx.strokeStyle=st[0];cx.lineWidth=st[1];cx.globalAlpha=st[2];cx.beginPath();
+   best.forEach(function(v,k){var c=cities[v];k?cx.lineTo(c.x*s,c.y*s):cx.moveTo(c.x*s,c.y*s)});cx.stroke()});
+  cx.globalAlpha=1;
+ }
+ for(i=0;i<n;i++)dot(cities[i].x*s,cities[i].y*s,3.5,tx);
+ if(n){dot(cities[0].x*s,cities[0].y*s,9,ph,'A');if(mode=='goal')dot(cities[1].x*s,cities[1].y*s,9,ac,'B')}
+ if($('cAnts').checked){
+  cx.fillStyle=tx;cx.globalAlpha=.5;
+  ants.forEach(function(a){if(a.nx<0||a.cur>=n||a.nx>=n)return;var u=a.s/D[a.cur][a.nx],p=cities[a.cur],q=cities[a.nx];
+   cx.beginPath();cx.arc((p.x+(q.x-p.x)*u)*s,(p.y+(q.y-p.y)*u)*s,2.3,0,7);cx.fill()});
+  cx.globalAlpha=1;
+ }
+ if(hov&&hov.i<n&&hov.j<n&&E[hov.i][hov.j]){
+  var hp=cities[hov.i],hq=cities[hov.j],txt=D[hov.i][hov.j].toFixed(0);
+  cx.globalAlpha=1;cx.strokeStyle=tx;cx.lineWidth=3;cx.beginPath();cx.moveTo(hp.x*s,hp.y*s);cx.lineTo(hq.x*s,hq.y*s);cx.stroke();
+  var mx2=(hp.x+hq.x)/2*s,my2=(hp.y+hq.y)/2*s;
+  cx.font='bold 12px system-ui,sans-serif';cx.textAlign='center';cx.textBaseline='middle';
+  var tw=cx.measureText(txt).width+12;
+  cx.fillStyle=tx;cx.fillRect(mx2-tw/2,my2-10,tw,20);cx.fillStyle=sf;cx.fillText(txt,mx2,my2+.5);
+ }
+ f=fit(ch);W=f.w;H=f.h;cc.setTransform(f.d,0,0,f.d,0,0);cc.clearRect(0,0,W,H);
+ var vals=hist.filter(function(v){return v!=null});
+ if(hist.length>1){
+  var s0=samp-hist.length;
+  cc.strokeStyle=bad;cc.lineWidth=1;cc.globalAlpha=.6;
+  events.forEach(function(e){var x=(e-s0)/(hist.length-1)*W;if(x>=0){cc.beginPath();cc.moveTo(x,0);cc.lineTo(x,H);cc.stroke()}});
+  cc.globalAlpha=1;
+  if(vals.length){
+   var mx=Math.max.apply(null,vals),mn=Math.min.apply(null,vals),rg=(mx-mn)||1,pen=false;
+   cc.strokeStyle=ac;cc.lineWidth=1.8;cc.beginPath();
+   hist.forEach(function(v,k){if(v==null){pen=false;return}var x=k/(hist.length-1)*W,y=H-8-(v-mn)/rg*(H-22);pen?cc.lineTo(x,y):cc.moveTo(x,y);pen=true});
+   cc.stroke();cc.fillStyle=css('--mut');cc.font='11px system-ui,sans-serif';cc.textAlign='left';cc.textBaseline='alphabetic';
+   cc.fillText(mx.toFixed(0),4,11);cc.fillText(mn.toFixed(0),4,H-1);
+  }
+ }
+ $('sT').textContent=T.toFixed(0);$('sBest').textContent=isFinite(bestLen)?bestLen.toFixed(0):'—';$('sDone').textContent=done;
+ $('sN').textContent=n;$('sO').textContent=obs.length;$('sPhi').textContent=phi.toFixed(2);
+ $('sRho').textContent=EF.r.toFixed(2);$('sAl').textContent=EF.a.toFixed(2);$('sBe').textContent=EF.b.toFixed(2);
+}
+function loop(ts){
+ var dt=Math.min(.05,(ts-last)/1000||0);last=ts;
+ if(running)step(dt);
+ if($('cAuto').checked&&ts-lastAuto>8000){lastAuto=ts;var r=Math.random();
+  if(r<.25){var p=rp(40,WW-40);addCity(p.x,p.y)}else if(r<.5)delCity();else if(r<.7)moveCities();
+  else if(r<.85){if(addObsRand())env(true)}else if(obs.length){obs.pop();env(true)}}
+ draw();requestAnimationFrame(loop);
+}
+['rA','rB','rR','rM','rL','rS','rO','cAdapt'].forEach(function(i){$(i).addEventListener('input',readP)});
+$('rC').addEventListener('input',function(){readP();env(false)});
+document.querySelectorAll('input[name=mode]').forEach(function(e){e.addEventListener('change',function(){if(e.checked)setMode(e.value)})});
+document.querySelectorAll('input[name=tool]').forEach(function(e){e.addEventListener('change',function(){if(e.checked){tool=e.value;map.style.touchAction=tool=='move'?'none':'manipulation';map.style.cursor=tool=='move'?'grab':tool=='del'?'pointer':'crosshair'}})});
+map.addEventListener('click',function(e){
+ var b=map.getBoundingClientRect(),x=(e.clientX-b.left)/b.width*WW,y=(e.clientY-b.top)/b.height*WH;
+ if(tool=='city'){addCity(x,y);return}
+ if(tool=='move')return;
+ if(tool=='del'){var k=nearCity(x,y);if(k>=2&&n>5){removeCity(k);best=null;bestLen=Infinity;env(true)}return}
+ if(tool=='setB'){
+  if(mode!='goal')return;
+  var k2=nearCity(x,y);
+  if(k2>=2)setB(k2);
+  else if(k2<0&&n<60&&!inObs(x,y,8)){cities.push({x:x,y:y});for(var q=0;q<n;q++)tau[q].push(1);n++;tau.push(new Array(n).fill(1));setB(n-1)}
+  return;
+ }
+ for(var k=0;k<obs.length;k++)if(Math.hypot(x-obs[k].x,y-obs[k].y)<obs[k].r){obs.splice(k,1);env(true);return}
+ if(tryObs({x:x,y:y,r:P.os}))env(true);
+});
+function wpos(e){var b=map.getBoundingClientRect();return{x:(e.clientX-b.left)/b.width*WW,y:(e.clientY-b.top)/b.height*WH}}
+map.addEventListener('pointerdown',function(e){
+ if(tool!='move')return;var p=wpos(e),k=nearCity(p.x,p.y);
+ if(k>=0){drag=k;hov=null;map.setPointerCapture(e.pointerId);map.style.cursor='grabbing'}
+});
+map.addEventListener('pointermove',function(e){
+ var p=wpos(e),s=map.clientWidth/WW;
+ if(drag>=0){
+  var x=Math.min(WW-15,Math.max(15,p.x)),y=Math.min(WH-15,Math.max(15,p.y));
+  if(!inObs(x,y,6)){cities[drag].x=x;cities[drag].y=y;env(false)}
+  return;
+ }
+ if(nearCity(p.x,p.y)>=0){hov=null;return}
+ var bd=7/s,h=null,i,j;
+ for(i=0;i<n;i++)for(j=i+1;j<n;j++)if(E[i][j]){var d=segD(cities[i].x,cities[i].y,cities[j].x,cities[j].y,p.x,p.y);if(d<bd){bd=d;h={i:i,j:j}}}
+ hov=h;
+});
+function endDrag(){if(drag>=0){drag=-1;map.style.cursor='grab';env(true)}}
+map.addEventListener('pointerup',endDrag);
+map.addEventListener('pointercancel',endDrag);
+map.addEventListener('pointerleave',function(){hov=null});
+$('bStr').onclick=function(){stretch(1.15)};
+$('bShr').onclick=function(){stretch(.87)};
+function rng(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+var BN={seeds:5,chg:4,tp:12,wu:15};
+function sim(sec){for(var t=0;t<sec-1e-9;t+=.05)step(.05)}
+function change(k){
+ if(k==1){addObsRand();env(true)}else if(k==2)delCity();else moveCities();
+ return reach;
+}
+function runScn(sd,si,c){
+ var er=rng(1000+sd),ar=rng(77+sd*10+si),out=[],k,t,ser;
+ P.ad=!!c.ad;P.l=c.l;P.rs=c.rs;
+ Math.random=er;resetMap();
+ Math.random=ar;sim(BN.wu);
+ for(k=0;k<BN.chg;k++){
+  Math.random=er;var ok=change(k);
+  Math.random=ar;
+  if(!ok){out.push(null);continue}
+  ser=[];
+  for(t=0;t<BN.tp;t+=.25){sim(.25);ser.push(isFinite(bestLen)?bestLen:Infinity)}
+  out.push(ser);
+ }
+ return out;
+}
+async function bench(){
+ var S=[{n:'Без адаптации',ad:0,l:0,rs:0},{n:'Только параметры (λ = 0)',ad:1,l:0,rs:0},{n:'Адаптация (λ из ползунка)',ad:1,l:P.l,rs:0},{n:'Полный перезапуск феромона',ad:0,l:0,rs:1}];
+ var res=S.map(function(){return[]}),rr=Math.random,els=document.querySelectorAll('button,input'),auto=$('cAuto').checked,run=running,sv={ad:P.ad,l:P.l};
+ var sn={c:JSON.parse(JSON.stringify(cities)),o:JSON.parse(JSON.stringify(obs)),t:tau.map(function(r){return r.slice()}),b:best&&best.slice(),bl:bestLen,T:T,d:done,phi:phi,h:hist.slice(),sp:samp,ev:events.slice()};
+ var out=$('bOut'),btn=$('bBench'),sd,si;
+ els.forEach(function(e){e.disabled=true});$('cAuto').checked=false;running=false;map.style.pointerEvents='none';btn.textContent='Идёт эксперимент…';hov=null;
+ try{
+  for(sd=0;sd<BN.seeds;sd++)for(si=0;si<S.length;si++){
+   $('bSt').textContent='Запуск '+(sd*S.length+si+1)+' из '+BN.seeds*S.length;
+   await new Promise(function(r){setTimeout(r,20)});
+   res[si][sd]=runScn(sd,si,S[si]);
+  }
+  var rec=S.map(function(){return[]}),fin=S.map(function(){return[]}),okc=S.map(function(){return[]}),k,i,ref,ser;
+  for(sd=0;sd<BN.seeds;sd++)for(k=0;k<BN.chg;k++){
+   if(!res[0][sd][k])continue;
+   ref=Infinity;
+   for(si=0;si<S.length;si++)ref=Math.min(ref,Math.min.apply(null,res[si][sd][k]));
+   if(!isFinite(ref))continue;
+   for(si=0;si<S.length;si++){
+    ser=res[si][sd][k];var rt=BN.tp;
+    for(i=0;i<ser.length;i++)if(ser[i]<=ref*1.05){rt=(i+1)*.25;break}
+    rec[si].push(rt);fin[si].push(Math.min(1,ser[ser.length-1]/ref-1));okc[si].push(rt<BN.tp?1:0);
+   }
+  }
+  var avg=function(a){return a.reduce(function(x,y){return x+y},0)/a.length};
+  if(!rec[0].length){out.innerHTML='Не удалось: в сценариях не нашлось ни одного пути. Увеличьте радиус связи или уменьшите препятствия.'}
+  else{
+   var rows=S.map(function(c,j){return{n:c.n,a:avg(rec[j]),f:avg(fin[j]),o:avg(okc[j])}});
+   var mn=Math.min.apply(null,rows.map(function(r){return r.a}));
+   out.innerHTML='<table><tr><th>Стратегия</th><th>Время восстановления, с</th><th>Длина в конце периода, +% к лучшей</th><th>Восстановился</th></tr>'+rows.map(function(r){return '<tr'+(r.a===mn?' class="best"':'')+'><td>'+r.n+'</td><td><div class="bar" style="width:'+Math.max(2,r.a/BN.tp*100)+'%"></div>'+r.a.toFixed(1)+'</td><td>'+(r.f*100).toFixed(1)+'%</td><td>'+Math.round(r.o*100)+'%</td></tr>'}).join('')+'</table><div class="leg">Периодов в усреднении: '+rec[0].length+'. Жирная строка: самое быстрое восстановление. Эксперимент случайный, при повторном запуске числа слегка меняются.</div>';
+  }
+  $('bSt').textContent='Готово';
+ }finally{
+  Math.random=rr;P.ad=sv.ad;P.l=sv.l;P.rs=0;
+  cities=sn.c;obs=sn.o;tau=sn.t;n=cities.length;best=sn.b;bestLen=sn.bl;T=sn.T;done=sn.d;phi=sn.phi;hist=sn.h;samp=sn.sp;events=sn.ev;
+  env(false);
+  els.forEach(function(e){e.disabled=false});$('cAuto').checked=auto;running=run;map.style.pointerEvents='';btn.textContent='Запустить сравнение стратегий';
+ }
+}
+$('bBench').onclick=bench;
+$('bRun').onclick=function(){running=!running;this.textContent=running?'Пауза':'Старт'};
+$('bReset').onclick=resetMap;
+$('bAdd').onclick=function(){var p=rp(40,WW-40);addCity(p.x,p.y)};
+$('bDel').onclick=delCity;$('bMove').onclick=moveCities;
+$('bObs').onclick=function(){if(addObsRand())env(true)};
+$('bClr').onclick=function(){if(obs.length){obs=[];env(true)}};
+readP();resetMap();requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
